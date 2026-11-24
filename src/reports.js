@@ -194,6 +194,9 @@ ${rows.join('\n')}
 </table></div>`}`);
 }
 
+// ElevenLabs' own tools. They are not the transfer request, so they cannot be used to line up the clocks.
+const SYSTEM_TOOLS = /called (skip_turn|end_call|language_detection|transfer_to_number|transfer_to_agent|play_keypad_touch_tone|voicemail_detection)\b/;
+
 function transcriptLineCount(r) {
   return ((r.transcript && r.transcript.conversations) || []).reduce((n, c) => n + c.entries.filter((e) => e.role !== 'tool').length, 0);
 }
@@ -210,10 +213,25 @@ function renderTranscript(r) {
   if (transcript.status === 'pending') notes.push('ElevenLabs has no conversation for this call yet. Reload this page in a few seconds.');
   if (transcript.status === 'unavailable') notes.push(`Could not fetch the transcript from ElevenLabs: ${esc(transcript.error)}`);
 
+  // ElevenLabs' clock and this server's clock can be a minute or more apart, so its
+  // timestamps cannot be compared with ours as they are. One moment is known on both
+  // clocks: when Ava called the transfer tool. ElevenLabs says how many seconds into the
+  // conversation that was, and the report's started_at is when the server received it.
+  // Every line is placed relative to that.
+  const first = transcript.conversations[0];
+  const toolCall = first && first.entries.find((e) => e.role === 'tool' && !SYSTEM_TOOLS.test(e.text));
+  const clockOffsetMs = toolCall && r.started_at && first.started_at
+    ? Date.parse(r.started_at) - toolCall.seconds * 1000 - Date.parse(first.started_at)
+    : 0;
+  const onOurClock = (conversation, entry) => {
+    const startMs = Date.parse(conversation.started_at);
+    return Number.isFinite(startMs) ? new Date(startMs + clockOffsetMs + entry.seconds * 1000).toISOString() : entry.at;
+  };
+
   const rows = [];
   transcript.conversations.forEach((conversation, index) => {
-    if (index > 0) rows.push({ at: conversation.started_at, role: 'marker', text: 'Ava rejoined the call (new ElevenLabs conversation)' });
-    rows.push(...conversation.entries);
+    if (index > 0) rows.push({ at: onOurClock(conversation, { seconds: 0 }), role: 'marker', text: 'Ava rejoined the call (new ElevenLabs conversation)' });
+    rows.push(...conversation.entries.map((entry) => ({ ...entry, at: onOurClock(conversation, entry) })));
   });
   rows.push({ at: r.started_at, role: 'marker', text: 'Ava asked for a technician (request_transfer)' });
   const joinedAt = r.result === 'connected' ? r.finished_at : null;

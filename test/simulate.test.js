@@ -937,9 +937,10 @@ test('reports: summary text is HTML-escaped', async (t) => {
 
 // ---------------------------------------------------------------- transcripts
 
-// An ElevenLabs conversation that began 30 seconds before the tool call.
-function conversationFor(report, { status = 'done', turns } = {}) {
-  const start = Math.floor(Date.parse(report.started_at) / 1000) - 30;
+// An ElevenLabs conversation that began about 30 seconds before the tool call.
+// clockSkewSeconds simulates ElevenLabs' clock running ahead of the server's.
+function conversationFor(report, { status = 'done', turns, clockSkewSeconds = 0 } = {}) {
+  const start = Math.floor(Date.parse(report.started_at) / 1000) - 30 + clockSkewSeconds;
   return {
     conversation_id: 'conv_test1',
     status,
@@ -999,6 +1000,32 @@ test('transcript: fetched from ElevenLabs after the call and shown on the report
 
   assert.ok((await s.get('/reports')).text.includes('5 lines'));
   assert.equal(s.elevenLabs.lookups.length, 1, 'a final transcript is not fetched again');
+});
+
+test('transcript: speakers and key moments still line up when the ElevenLabs clock is over a minute off', async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await s.residentAsksForTransfer();
+  await s.techAcceptsAndJoins(0);
+
+  // Seen on a real call: ElevenLabs reported the conversation starting 73 seconds "late".
+  s.elevenLabs.details = [conversationFor(s.report(), { clockSkewSeconds: 73 })];
+  const detail = (await s.get(`/reports/${RESIDENT}`)).text;
+
+  const order = [
+    'My kitchen sink is leaking.',
+    'called request_transfer',
+    'Ava asked for a technician (request_transfer)',
+    'Technician +15550000001 joined the call',
+    'Hi, this is Kofi from maintenance.',
+  ].map((text) => detail.indexOf(text));
+  assert.ok(order.every((index) => index > 0));
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'placed by seconds into the conversation, not by the skewed clock');
+
+  assert.match(detail, /<td>Resident<\/td><td class="text">My kitchen sink is leaking\.<\/td>/);
+  assert.match(detail, /<td>Ava<\/td><td class="text">Hello, this is Ava\. How can I help\?<\/td>/, 'her greeting was heard');
+  assert.match(detail, /<td>Resident or technician<\/td><td class="text">Hi, this is Kofi from maintenance\./);
+  assert.match(detail, /<td>Ava \(muted, not heard\)<\/td><td class="text">Kofi, I have Kennedy from unit 4B on the line\.<\/td>/);
 });
 
 test('transcript: opening the report during the call shows what there is so far and refreshes on reload', async (t) => {
@@ -1080,5 +1107,7 @@ test('security: bad Twilio signature is 403, tool endpoint needs X-Tool-Secret a
   assert.equal((await s.json('/tool/request-transfer', { call_sid: RESIDENT, summary: 'x' }, null)).status, 401);
   assert.equal((await s.json('/tool/request-transfer', { call_sid: RESIDENT, summary: 'x' }, 'wrong-secret')).status, 401);
   assert.equal((await s.json('/tool/request-transfer', { call_sid: 'nope', summary: 'x' })).status, 400);
+  // A tool that sends the SID as parent_call_sid is understood too (404 = well-formed, unknown call).
+  assert.equal((await s.json('/tool/request-transfer', { parent_call_sid: RESIDENT, summary: 'x' })).status, 404);
   assert.equal((await s.json('/tool/request-transfer', { call_sid: RESIDENT, summary: 'x' })).status, 404, 'unknown call');
 });

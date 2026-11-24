@@ -4,3 +4,5 @@ node_modules/
 reports/
 # The Twilio number's previous settings, saved by scripts/setup-inbound-number.js.
 .inbound-number-backup.json
+# Copy of the ElevenLabs agent's settings taken before they were changed.
+.elevenlabs-agent-backup.json

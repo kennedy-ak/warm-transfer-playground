@@ -685,7 +685,7 @@ function createApp({ config, client, registerCall, conversations = null, logger 
   // ---------------------------------------------------------------- ElevenLabs tool
 
   app.post('/tool/request-transfer', secretHook, (req, res) => {
-    const callSid = String((req.body && req.body.call_sid) || '').trim();
+    const callSid = String((req.body && (req.body.call_sid || req.body.parent_call_sid)) || '').trim();
     const summary = String((req.body && req.body.summary) || '').replace(/\s+/g, ' ').trim().slice(0, 600);
     log(`TOOL request-transfer call_sid=${callSid || '(missing)'} summary=${JSON.stringify(summary)}`);
 

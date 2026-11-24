@@ -41,7 +41,7 @@ test('register-call request shape, and raw XML response', async (t) => {
     from_number: '+15559990000',
     to_number: '+15551110000',
     direction: 'outbound',
-    conversation_initiation_client_data: { dynamic_variables: { call_sid: 'CA123' } },
+    conversation_initiation_client_data: { dynamic_variables: { call_sid: 'CA123', parent_call_sid: 'CA123' } },
   });
 });
 
@@ -52,7 +52,7 @@ test('first-message override and JSON-encoded string response', async (t) => {
   const twiml = await api.registerCall({ fromNumber: '+1555', toNumber: '+1666', direction: 'inbound', callSid: 'CA123', firstMessage: 'Hello again' });
   assert.equal(twiml, TWIML);
   assert.deepEqual(api.seen[0].body.conversation_initiation_client_data, {
-    dynamic_variables: { call_sid: 'CA123' },
+    dynamic_variables: { call_sid: 'CA123', parent_call_sid: 'CA123' },
     conversation_config_override: { agent: { first_message: 'Hello again' } },
   });
 });

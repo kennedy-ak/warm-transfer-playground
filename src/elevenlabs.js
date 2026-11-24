@@ -4,7 +4,9 @@
 // that we pass straight to Twilio; Twilio stays in control of the call.
 function createRegisterCall(config) {
   return async function registerCall({ fromNumber, toNumber, direction, callSid, firstMessage }) {
-    const clientData = { dynamic_variables: { call_sid: callSid } };
+    // Both names carry the resident's Twilio call SID. The agent's tools may use either;
+    // ElevenLabs refuses to start a conversation if a tool needs a variable we did not send.
+    const clientData = { dynamic_variables: { call_sid: callSid, parent_call_sid: callSid } };
     if (firstMessage) {
       // Only honoured if "first message" overrides are enabled in the agent's security settings.
       clientData.conversation_config_override = { agent: { first_message: firstMessage } };
