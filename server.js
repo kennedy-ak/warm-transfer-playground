@@ -31,6 +31,7 @@ app.listen(config.port, () => {
   console.log(`  ring timeout: ${config.ringTimeoutSec}s`);
   console.log(`  transfer    : agent stays on the call (Ava leg via TwiML App ${config.agentAppSid})`);
   console.log(`  hold music  : ${config.holdDelayMs === null ? 'off' : `starts ${config.holdDelayMs / 1000}s after the tool call`}`);
+  console.log(`  callers     : ${config.inboundAllowedCallers.length ? `only ${config.inboundAllowedCallers.join(', ')}` : 'anyone who rings the number'}`);
   console.log(`  reports     : http://localhost:${config.port}/reports`);
-  console.log('Start a test call with:  node scripts/start-call.js +15551234567');
+  console.log(`To test, call ${config.twilioPhoneNumber} from a phone.`);
 });

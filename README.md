@@ -1,6 +1,6 @@
 # Warm-transfer playground (Twilio + ElevenLabs)
 
-> **Branch `agent-stays-on-call`.** On this branch Ava stays on the call with the resident and the technician (a three-way call). On `main` she hands the resident over and leaves. See [Switching between the two versions](#switching-between-the-two-versions).
+> **Branch `inbound-calls`.** On this branch the resident **calls the Twilio number** to reach Ava; the server no longer has to ring them first. Everything else is the same as `agent-stays-on-call`: Ava stays on the call with the resident and the technician. On `main` she hands the resident over and leaves. See [Switching between the versions](#switching-between-the-versions).
 
 A small Express server for trying out a warm transfer from an ElevenLabs agent ("Ava") to a human technician.
 
@@ -11,7 +11,7 @@ A small Express server for trying out a warm transfer from an ElevenLabs agent (
 
 The resident, Ava and the technician all sit in one Twilio conference room, `room-<resident call_sid>`.
 
-1. The resident's call goes straight into the room.
+1. The resident calls the Twilio number. Twilio asks `/twilio/inbound` what to do, and the call goes straight into the room.
 2. The server adds Ava to the room as her own call leg. Twilio reaches that leg through a TwiML App whose Voice URL is `/twilio/agent-leg`, and that endpoint returns the ElevenLabs register-call TwiML. The resident hears a second or two of silence, then Ava.
 3. Ava calls the `request_transfer` tool with a `summary` and the resident's `call_sid`. The server answers straight away (`"status": "searching"`) and calls technicians in the background. Ava asks the resident to hold, and about 5 seconds after the tool call the resident is put on **hold music** and Ava is muted. See [Hold music](#hold-music).
 4. A technician who picks up hears the summary and "Press 1 to connect to the resident." (up to 3 times). Answering-machine detection runs in the background.
@@ -114,9 +114,36 @@ npm start
 
 The startup lines should include `transfer    : agent stays on the call`.
 
-### 6. Start a test call (outbound, the default)
+### 6. Point the Twilio number at the server
 
-This rings the person playing the resident, so the shared Twilio number's webhook does not need to change:
+```powershell
+node scripts/setup-inbound-number.js
+```
+
+This changes one setting on `TWILIO_PHONE_NUMBER`: where Twilio sends incoming calls ("A call comes in"). It is set to `PUBLIC_BASE_URL/twilio/inbound`. The previous value is saved first in `.inbound-number-backup.json`, and this puts it back:
+
+```powershell
+node scripts/setup-inbound-number.js --restore
+```
+
+**If other people or another app use this number, read this first.** While the number points here, every incoming call comes to this server instead of the other app, and stops working altogether when your server or tunnel is not running. Two things limit the damage:
+
+- **Allow-list.** Set `INBOUND_ALLOWED_CALLERS` in `.env` to the phones you test from (comma-separated, E.164). Only those callers reach Ava. Everyone else is handed straight to the app the number pointed at before (`INBOUND_PASS_THROUGH_URL`, filled in by the script), so it keeps working for them as long as your server is up. With no pass-through URL, other callers are rejected.
+- **Restore when you are done** with the `--restore` command above.
+
+The number's "Call status changes" URL is left alone. No status URL is needed here: the conference ending tells the server the resident hung up.
+
+Run the script again whenever `PUBLIC_BASE_URL` changes. You can also do all of this by hand: Twilio Console > Phone Numbers > your number > Voice configuration > **A call comes in** = Webhook, `POST`, `https://<your-ngrok-host>/twilio/inbound`.
+
+### 7. Call the number
+
+Call `TWILIO_PHONE_NUMBER` from a phone. You hear a second or two of silence, then Ava. Ask her for a technician to trigger the transfer.
+
+The caller pays their own carrier's rate for the call. If the Twilio number is in another country than the caller, that is an international call.
+
+### Alternative: have the server ring the resident
+
+The outbound start from the other branches still works, for when calling the number is not practical:
 
 ```powershell
 node scripts/start-call.js +15551234567
@@ -124,17 +151,13 @@ node scripts/start-call.js +15551234567
 
 `/start-call` requires the `X-Tool-Secret` header (the script sends it) because the server is reachable from the internet through ngrok and this endpoint places phone calls.
 
-### Alternative: inbound calls
-
-If you can change the number's configuration: Twilio Console > Phone Numbers > your number > Voice configuration > **A call comes in** = Webhook, `POST`, `https://<your-ngrok-host>/twilio/inbound`. Then call the number. No "Call status changes" URL is needed: the conference ending tells the server the resident hung up.
-
 ## Endpoints
 
 | Endpoint | Called by | Purpose |
 | --- | --- | --- |
-| `POST /start-call` | you (`X-Tool-Secret`) | Ring the resident. Body: `{"to": "+1..."}` |
+| `POST /twilio/inbound` | Twilio | Resident called the number. Puts them in their room (or passes other callers on, if an allow-list is set) |
+| `POST /start-call` | you (`X-Tool-Secret`) | Alternative start: ring the resident. Body: `{"to": "+1..."}` |
 | `POST /twilio/outbound-answer` | Twilio | Resident answered an outbound call. Puts them in their room |
-| `POST /twilio/inbound` | Twilio | Resident called the number. Puts them in their room |
 | `POST /twilio/agent-leg` | Twilio (TwiML App) | Ava's leg. Calls register-call and returns the ElevenLabs stream TwiML |
 | `POST /twilio/resident-status` | Twilio | Status of an outbound-started resident call. A hang-up cancels the search |
 | `POST /tool/request-transfer` | ElevenLabs (`X-Tool-Secret`) | Start the technician search. Body: `{"summary": "...", "call_sid": "CA..."}` |
@@ -237,7 +260,8 @@ Run these with real phones. Repeat the starred ones with `DIAL_MODE=parallel`.
 
 | # | Case | How to test | Expected |
 | --- | --- | --- | --- |
-| 1 | Ava joins | Start a call and answer as the resident | A second or two of silence, then Ava greets you. Log: `AGENT adding Ava`, `REGISTER-CALL ok`, `CONFERENCE agent joined` |
+| 0 | Allow-list (if set) | Call the number from a phone that is not on `INBOUND_ALLOWED_CALLERS` | The call goes to the previous app, not to Ava. Log: `INBOUND caller ... is not on the allow-list` |
+| 1 | Ava joins | Call the Twilio number from the resident's phone | A second or two of silence, then Ava greets you. Log: `AGENT adding Ava`, `REGISTER-CALL ok`, `CONFERENCE agent joined` |
 | 2a | Hold music | Ask for a technician | Ava says "please hold", then music plays until a technician joins or the search fails. Log: `HOLD resident=... on hold with music`, `AGENT Ava muted` |
 | 2 | Accept, Ava silent * | Ask for a technician; technician presses 1 | Music stops. Technician hears "Connecting you to the resident." Everyone hears "A technician has joined the call." Resident and technician talk; Ava is not heard, even if you speak to her. Log: `WINNER`, `CONFERENCE technician joined ... (now 3 in the room)`, `AGENT Ava muted`, `TRANSFER CONNECTED` |
 | 3 | Technician leaves, Ava remembers | Technician hangs up, then ask Ava something from earlier in the call | Log: `AGENT Ava unmuted`. She answers, from the same conversation |
@@ -291,7 +315,13 @@ Twilio blocks outbound calls to countries that are not enabled. Enable the count
 - **Cost.** Ava's leg is an extra call leg that lasts the whole call, in addition to the resident's and the technician's.
 - **Recording.** The conference is recorded from the first second, so the recording includes the resident's conversation with Ava. Check the consent rules that apply to you.
 
-## Switching between the two versions
+## Switching between the versions
+
+| Branch | Who starts the call | Ava during the technician's part |
+| --- | --- | --- |
+| `main` | the server rings the resident | leaves |
+| `agent-stays-on-call` | the server rings the resident | stays on the call, muted |
+| `inbound-calls` | the resident calls the number | stays on the call, muted |
 
 ```powershell
 git switch main
@@ -301,7 +331,13 @@ git switch main
 git switch agent-stays-on-call
 ```
 
-Restart the server after switching. `.env` and `reports/` are not tracked by git, so they stay as they are on both branches. `main` ignores `TWILIO_AGENT_APP_SID`.
+```powershell
+git switch inbound-calls
+```
+
+Restart the server after switching. `.env` and `reports/` are not tracked by git, so they stay as they are on every branch. `main` ignores `TWILIO_AGENT_APP_SID`.
+
+Switching branch does not change the Twilio number. If you pointed it at this server, it stays that way until you run `node scripts/setup-inbound-number.js --restore`.
 
 ## Files
 
@@ -313,4 +349,5 @@ Restart the server after switching. `.env` and `reports/` are not tracked by git
 - [scripts/start-call.js](scripts/start-call.js): helper for `/start-call`
 - [scripts/tunnel.js](scripts/tunnel.js): starts ngrok and writes `PUBLIC_BASE_URL` into `.env`
 - [scripts/setup-agent-app.js](scripts/setup-agent-app.js): creates or updates the TwiML App for Ava's leg
+- [scripts/setup-inbound-number.js](scripts/setup-inbound-number.js): points the Twilio number's incoming calls at this server, and restores it
 - [test/](test/): simulated webhook tests (`npm test`)

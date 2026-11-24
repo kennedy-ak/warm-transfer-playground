@@ -48,6 +48,17 @@ function loadConfig(env = process.env) {
     throw new Error(`HOLD_MUSIC_DELAY_SEC must be a number of seconds or "off", got "${env.HOLD_MUSIC_DELAY_SEC}"`);
   }
 
+  // Optional: only these callers reach Ava when they ring the number. Empty = everyone does.
+  const inboundAllowedCallers = (env.INBOUND_ALLOWED_CALLERS || '').split(',').map((n) => n.trim()).filter(Boolean);
+  const notE164 = inboundAllowedCallers.filter((n) => !E164_RE.test(n));
+  if (notE164.length) {
+    throw new Error(`INBOUND_ALLOWED_CALLERS has numbers that are not E.164: ${notE164.join(', ')}`);
+  }
+  const inboundPassThroughUrl = (env.INBOUND_PASS_THROUGH_URL || '').trim();
+  if (inboundPassThroughUrl && !/^https?:\/\//.test(inboundPassThroughUrl)) {
+    throw new Error('INBOUND_PASS_THROUGH_URL must be an http(s) URL');
+  }
+
   const publicBaseUrl = env.PUBLIC_BASE_URL.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//.test(publicBaseUrl)) {
     throw new Error('PUBLIC_BASE_URL must start with https:// (your ngrok URL, no trailing path)');
@@ -68,6 +79,9 @@ function loadConfig(env = process.env) {
     ringTimeoutSec: Number(env.RING_TIMEOUT_SEC) || 20,
     // TwiML App whose Voice URL is PUBLIC_BASE_URL/twilio/agent-leg. Ava joins the call through it.
     agentAppSid,
+    // Who may reach Ava by calling the number (empty = anyone), and where other callers are sent.
+    inboundAllowedCallers,
+    inboundPassThroughUrl,
     // Hold music for the resident while technicians are called. It starts this long after
     // the tool call, so Ava can finish saying "please hold". null = no hold music.
     holdDelayMs,

@@ -29,7 +29,13 @@ const FORGED = 'bm90LWEtcmVhbC1zaWduYXR1cmU=';
 const tick = () => new Promise((resolve) => setTimeout(resolve, 25));
 
 // holdDelayMs: null = no hold music (most tests), a number = music starts that long after the tool call.
-async function setup({ dialMode = 'sequential', techNumbers = ['+15550000001', '+15550000002'], holdDelayMs = null } = {}) {
+async function setup({
+  dialMode = 'sequential',
+  techNumbers = ['+15550000001', '+15550000002'],
+  holdDelayMs = null,
+  inboundAllowedCallers = [],
+  inboundPassThroughUrl = '',
+} = {}) {
   const created = []; //        calls.create(...)            -> technician calls and /start-call
   const updates = []; //        calls(sid).update(...)
   const agentLegs = []; //      conferences(sid).participants.create(...) -> Ava joining
@@ -110,6 +116,8 @@ async function setup({ dialMode = 'sequential', techNumbers = ['+15550000001', '
     dialMode,
     ringTimeoutSec: 20,
     agentAppSid: APP_SID,
+    inboundAllowedCallers,
+    inboundPassThroughUrl,
     holdDelayMs,
     holdMusicUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.classical',
     transcriptRetryMs: [5],
@@ -270,6 +278,33 @@ test('call start: resident goes into a room and Ava is added to it as her own le
   // A repeated join event does not add a second Ava.
   await s.room('participant-join', { CallSid: RESIDENT });
   assert.equal(s.agentLegs.length, 1);
+});
+
+test('inbound allow-list: listed callers reach Ava, everyone else is handed to the app the number used before', async (t) => {
+  const previousApp = 'https://other-app.example.test/twilio/voice';
+  const s = await setup({ inboundAllowedCallers: [RESIDENT_NUMBER], inboundPassThroughUrl: previousApp });
+  t.after(s.close);
+
+  const stranger = await s.hook('/twilio/inbound', { CallSid: `CA${'9'.repeat(32)}`, From: '+15557770000', To: TWILIO_NUMBER, Direction: 'inbound' });
+  assert.match(stranger.text, new RegExp(`<Redirect method="POST">${previousApp}</Redirect>`));
+  assert.doesNotMatch(stranger.text, /<Conference/);
+  assert.equal(s.state.residentCalls.size, 0, 'the playground keeps no record of that call');
+  assert.ok(s.logs.some((line) => line.includes('not on the allow-list') && line.includes('passed through')));
+
+  const tester = await s.hook('/twilio/inbound', { CallSid: RESIDENT, From: RESIDENT_NUMBER, To: TWILIO_NUMBER, Direction: 'inbound' });
+  assert.match(tester.text, new RegExp(`<Conference[^>]*>${ROOM}</Conference>`));
+});
+
+test('inbound allow-list: with nowhere to pass other callers to, their call is rejected; no list means everyone reaches Ava', async (t) => {
+  const strict = await setup({ inboundAllowedCallers: [RESIDENT_NUMBER] });
+  t.after(strict.close);
+  const stranger = await strict.hook('/twilio/inbound', { CallSid: `CA${'9'.repeat(32)}`, From: '+15557770000', To: TWILIO_NUMBER, Direction: 'inbound' });
+  assert.match(stranger.text, /<Reject\/>/);
+
+  const open = await setup();
+  t.after(open.close);
+  const anyone = await open.hook('/twilio/inbound', { CallSid: `CA${'9'.repeat(32)}`, From: '+15557770000', To: TWILIO_NUMBER, Direction: 'inbound' });
+  assert.match(anyone.text, /<Conference/);
 });
 
 test('agent leg: the resident call is found from Param_resident, or from the one call waiting for Ava', async (t) => {

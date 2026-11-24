@@ -10,6 +10,7 @@
     "call": "node scripts/start-call.js",
     "tunnel": "node scripts/tunnel.js",
     "setup-agent-app": "node scripts/setup-agent-app.js",
+    "setup-inbound-number": "node scripts/setup-inbound-number.js",
     "test": "node --test"
   },
   "engines": {

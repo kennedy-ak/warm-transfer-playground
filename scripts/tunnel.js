@@ -26,8 +26,9 @@ if (!authtoken) {
   if (changed) {
     console.log('PUBLIC_BASE_URL in .env was updated. Because the URL changed:');
     console.log('  1. run "node scripts/setup-agent-app.js" so Twilio reaches Ava\'s leg at the new URL');
-    console.log('  2. restart the server');
-    console.log('  3. update the tool URL in ElevenLabs');
+    console.log('  2. run "node scripts/setup-inbound-number.js" so incoming calls reach the new URL');
+    console.log('  3. restart the server');
+    console.log('  4. update the tool URL in ElevenLabs');
   } else {
     console.log('PUBLIC_BASE_URL in .env already had this URL.');
   }

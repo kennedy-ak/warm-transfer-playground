@@ -651,8 +651,25 @@ function createApp({ config, client, registerCall, conversations = null, logger 
     residentIntoRoom(res, CallSid);
   });
 
+  // The resident rings the Twilio number. This is the normal way in on this branch.
   app.post('/twilio/inbound', twilioHook, (req, res) => {
     const { CallSid, From, To } = req.body;
+
+    // On a number that other people also call, an allow-list keeps the playground to
+    // the testers: everyone else is handed to the app the number pointed at before.
+    const allowed = config.inboundAllowedCallers || [];
+    if (allowed.length && !allowed.includes(From)) {
+      const vr = new VoiceResponse();
+      if (config.inboundPassThroughUrl) {
+        log(`INBOUND caller ${From} is not on the allow-list: passed through to ${config.inboundPassThroughUrl} call=${CallSid}`);
+        vr.redirect({ method: 'POST' }, config.inboundPassThroughUrl);
+      } else {
+        log(`INBOUND caller ${From} is not on the allow-list: call rejected call=${CallSid}`);
+        vr.reject();
+      }
+      return sendTwiml(res, vr);
+    }
+
     residentCalls.set(CallSid, newResidentCall({ direction: 'inbound', number: From, twilioNumber: To }));
     residentIntoRoom(res, CallSid);
   });

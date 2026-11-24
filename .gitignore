@@ -2,3 +2,5 @@ node_modules/
 .env
 # Transfer reports contain phone numbers and call summaries.
 reports/
+# The Twilio number's previous settings, saved by scripts/setup-inbound-number.js.
+.inbound-number-backup.json
